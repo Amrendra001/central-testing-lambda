@@ -3,7 +3,7 @@ import json
 import boto3
 import os
 from table_localisation.metrics_util import precision_recall, metrics_table, metrics_col, metrics_row, check_table, check_column, check_row
-from global_variables import DATA_DIR_NAME, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH
+from global_variables import LOCAL_DATA_DIR, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH
 
 
 def s3_cp(source, destination):
@@ -12,8 +12,8 @@ def s3_cp(source, destination):
 
 def download_ocr(doc_id):
     source = f'{OCR_S3_PATH}/{doc_id}.parquet'
-    destination = f'{DATA_DIR_NAME}/ocr/{doc_id}.parquet'
-    os.makedirs(f'{DATA_DIR_NAME}/ocr/', exist_ok=True)
+    destination = f'{LOCAL_DATA_DIR}/ocr/{doc_id}.parquet'
+    os.makedirs(f'{LOCAL_DATA_DIR}/ocr/', exist_ok=True)
     s3_cp(source, destination)
 
 def add(cum_TP, cum_FP, cum_FN, TP, FP, FN):
@@ -30,7 +30,7 @@ def score(df, real_path, pred_path, thresholds):
             page_no -= 1
             doc_id = doc_id[:-4]
             filename = filename[:filename.rfind('.')] + '.json'
-            if not os.path.isfile(f'{DATA_DIR_NAME}/ocr/{doc_id}.parquet'):
+            if not os.path.isfile(f'{LOCAL_DATA_DIR}/ocr/{doc_id}.parquet'):
                 download_ocr(doc_id)
 
             if check_table(real_path, pred_path, filename):
@@ -92,21 +92,21 @@ def get_yolov5_pred(s3_path, s3_bucket):
 
 
 def get_score():
-    df = pd.read_csv(f'{DATA_DIR_NAME}/test_set_v1.csv')
-    os.makedirs(f'{DATA_DIR_NAME}/labels/', exist_ok=True)
-    os.makedirs(f'{DATA_DIR_NAME}/model_outputs/', exist_ok=True)
+    df = pd.read_csv(f'{LOCAL_DATA_DIR}/test_set_v1.csv')
+    os.makedirs(f'{LOCAL_DATA_DIR}/labels/', exist_ok=True)
+    os.makedirs(f'{LOCAL_DATA_DIR}/model_outputs/', exist_ok=True)
 
     for file_name in df['file_name']:
         s3_bucket = TEST_S3_BUCKET
         s3_path = f'{TEST_S3_PATH}/images/{file_name}'
         data = get_yolov5_pred(s3_path, s3_bucket)
         json_file_name = file_name[:file_name.rfind('.')] + '.json'
-        with open(f'{DATA_DIR_NAME}/model_outputs/' + json_file_name, 'w') as f:
+        with open(f'{LOCAL_DATA_DIR}/model_outputs/' + json_file_name, 'w') as f:
             json.dump(data, f)
 
-        s3_cp(f'{LABELS_S3_PATH}/{file_name[:-4]}.json', f'{DATA_DIR_NAME}/labels/{file_name[:-4]}.json')
+        s3_cp(f'{LABELS_S3_PATH}/{file_name[:-4]}.json', f'{LOCAL_DATA_DIR}/labels/{file_name[:-4]}.json')
 
-    real_path = f'{DATA_DIR_NAME}/labels/'
-    pred_path = f'{DATA_DIR_NAME}/model_outputs/'
+    real_path = f'{LOCAL_DATA_DIR}/labels/'
+    pred_path = f'{LOCAL_DATA_DIR}/model_outputs/'
     thresh_iou = [0.5, 0.9]
     return score(df, real_path, pred_path, thresh_iou)

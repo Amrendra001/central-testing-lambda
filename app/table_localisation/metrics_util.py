@@ -2,7 +2,7 @@ import json
 import boto3
 import time
 import pandas as pd
-from global_variables import DATA_DIR_NAME
+from global_variables import LOCAL_DATA_DIR
 
 def intersection_over_union_2D(gt_box, pred_box):
     """
@@ -113,7 +113,7 @@ def check_in_between(df_ocr, intersection):
 
 
 def check_char(doc_id, page_no, real_line, pred_line):
-    ocr_path = f'{DATA_DIR_NAME}/ocr/{doc_id}.parquet'
+    ocr_path = f'{LOCAL_DATA_DIR}/ocr/{doc_id}.parquet'
     df_ocr = pd.read_parquet(ocr_path)
     df_ocr = df_ocr[df_ocr['page']==page_no]
     df_ocr.loc[:,'midy'] = (df_ocr['miny']+df_ocr['maxy'])/2

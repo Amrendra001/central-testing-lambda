@@ -1,4 +1,4 @@
-DATA_DIR_NAME = 'app/table_localisation/data'
+LOCAL_DATA_DIR = 'app/table_localisation/data'
 OCR_S3_PATH = 's3://javis-ai-parser-dev/ocr_output'
 TEST_S3_BUCKET = 'document-ai-training-data'
 TEST_S3_PATH = 'test_sets/table_localisation'
