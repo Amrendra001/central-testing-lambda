@@ -3,7 +3,7 @@ import json
 import boto3
 import os
 from table_localisation.metrics_util import precision_recall, metrics_table, metrics_col, metrics_row, check_table, check_column, check_row
-from global_variables import DATA_DIR_NAME
+from global_variables import DATA_DIR_NAME, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH
 
 
 def s3_cp(source, destination):
@@ -11,7 +11,7 @@ def s3_cp(source, destination):
     os.system(sync_command)
 
 def download_ocr(doc_id):
-    source = f's3://javis-ai-parser-dev/ocr_output/{doc_id}.parquet'
+    source = f'{OCR_S3_PATH}/{doc_id}.parquet'
     destination = f'{DATA_DIR_NAME}/ocr/{doc_id}.parquet'
     os.makedirs(f'{DATA_DIR_NAME}/ocr/', exist_ok=True)
     s3_cp(source, destination)
@@ -97,14 +97,14 @@ def get_score():
     os.makedirs(f'{DATA_DIR_NAME}/model_outputs/', exist_ok=True)
 
     for file_name in df['file_name']:
-        s3_bucket = 'document-ai-training-data'
-        s3_path = f'test_sets/table_localisation/images/{file_name}'
+        s3_bucket = TEST_S3_BUCKET
+        s3_path = f'{TEST_S3_PATH}/images/{file_name}'
         data = get_yolov5_pred(s3_path, s3_bucket)
         json_file_name = file_name[:file_name.rfind('.')] + '.json'
         with open(f'{DATA_DIR_NAME}/model_outputs/' + json_file_name, 'w') as f:
             json.dump(data, f)
 
-        s3_cp(f's3://document-ai-training-data/test_sets/table_localisation/labels/{file_name[:-4]}.json', f'{DATA_DIR_NAME}/labels/{file_name[:-4]}.json')
+        s3_cp(f'{LABELS_S3_PATH}/{file_name[:-4]}.json', f'{DATA_DIR_NAME}/labels/{file_name[:-4]}.json')
 
     real_path = f'{DATA_DIR_NAME}/labels/'
     pred_path = f'{DATA_DIR_NAME}/model_outputs/'
