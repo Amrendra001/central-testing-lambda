@@ -3,7 +3,8 @@ import json
 import boto3
 import os
 from table_localisation.metrics_util import precision_recall, metrics_table, metrics_col, metrics_row, check_table, check_column, check_row
-from global_variables import LOCAL_DATA_DIR, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH
+from global_variables import LOCAL_DATA_DIR, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH, BEST_RESULT_S3_PATH
+from lambda_utils import call_email_lambda
 
 
 def s3_cp(source, destination):
@@ -20,12 +21,11 @@ def add(cum_TP, cum_FP, cum_FN, TP, FP, FN):
     return cum_TP + TP, cum_FP + FP, cum_FN + FN
 
 
-def score(df, real_path, pred_path, thresholds):
-    result = ""
+def get_score(df, real_path, pred_path, thresholds):
+    result = dict()
     for thresh_iou in thresholds:
         cum_TP_col, cum_FP_col, cum_FN_col, cum_TP_row, cum_FP_row, cum_FN_row = 0, 0, 0, 0, 0, 0
         table_score_ls = []
-        start = 0
         for filename, doc_id, page_no in zip(df['file_name'], df['doc_id'], df['page_number_index']):
             page_no -= 1
             doc_id = doc_id[:-4]
@@ -45,23 +45,108 @@ def score(df, real_path, pred_path, thresholds):
                 TP, FP, FN = metrics_row(real_path, pred_path, filename, doc_id, thresh_iou, page_no)
                 cum_TP_row, cum_FP_row, cum_FN_row = add(cum_TP_row, cum_FP_row, cum_FN_row, TP, FP, FN)
 
-        result += f'For Thresh IOU = {thresh_iou}\n'
+        thresh_key = str(thresh_iou)
+        result[thresh_key] = dict()
+        # result += f'For Thresh IOU = {thresh_iou}\n'
 
         if check_table(real_path, pred_path, filename):
             avg_table_score = sum(table_score_ls) / len(table_score_ls)
-            result += f'Average Table score = {avg_table_score}\n'
+            result[thresh_key]['Average Table Score'] = avg_table_score
+            # result += f'Average Table score = {avg_table_score}\n'
 
         if check_column(real_path, pred_path, filename):
             precision_col, recall_col = precision_recall(cum_TP_col, cum_FP_col, cum_FN_col)
-            result += f'Column Seprators Precision = {precision_col}\n'
-            result += f'Column Seprators Recall = {recall_col}\n'
+            result[thresh_key]['Column Seprators Precision'] = precision_col
+            result[thresh_key]['Column Seprators Recall'] = recall_col
+            # result += f'Column Seprators Precision = {precision_col}\n'
+            # result += f'Column Seprators Recall = {recall_col}\n'
 
         if check_row(real_path, pred_path, filename):
             precision_row, recall_row = precision_recall(cum_TP_row, cum_FP_row, cum_FN_row)
-            result += f'Row Seprators Precision for = {precision_row}\n'
-            result += f'Row Seprators Recall for = {recall_row}\n'
-        result += '\n'
+            result[thresh_key]['Row Seprators Precision'] = precision_row
+            result[thresh_key]['Row Seprators Recall'] = recall_row
+            # result += f'Row Seprators Precision for = {precision_row}\n'
+            # result += f'Row Seprators Recall for = {recall_row}\n'
+
     return result
+
+
+def get_bucket_analysis(df_org, real_path, pred_path, thresholds):
+    result = dict()
+    output = 'Bucket Analysis:\n'
+    col_ls = ['format', 'structuring', 'row_levels', 'table_size', 'divisions_presence', 'partial_structure']
+    for col in col_ls:
+        result[col] = dict()
+        for bucket_type in df_org[col].unique():
+            if pd.isna(bucket_type): continue
+            result[col][bucket_type] = dict()
+            df = df_org[df_org[col] == bucket_type]
+            output += '******************************************************************************************\n'
+            output += f'Column = {col}\n'
+            output += f'Bucket Type = {bucket_type}\n'
+            for thresh_iou in thresholds:
+                result[col][bucket_type][thresh_iou] = dict()
+                cum_TP_col, cum_FP_col, cum_FN_col, cum_TP_row, cum_FP_row, cum_FN_row = 0, 0, 0, 0, 0, 0
+                table_score_ls = []
+                for filename, doc_id, page_no in zip(df['file_name'], df['doc_id'], df['page_number_index']):
+                    page_no -= 1
+                    doc_id = doc_id[:-4]
+                    filename = filename[:filename.rfind('.')] + '.json'
+                    if check_table(real_path, pred_path, filename):
+                        table_score = metrics_table(real_path, pred_path, filename)
+                        table_score_ls.append(table_score)
+
+                    if check_column(real_path, pred_path, filename):
+                        TP, FP, FN = metrics_col(real_path, pred_path, filename, doc_id, thresh_iou)
+                        cum_TP_col += TP
+                        cum_FP_col += FP
+                        cum_FN_col += FN
+
+                    if check_row(real_path, pred_path, filename):
+                        TP, FP, FN = metrics_row(real_path, pred_path, filename, doc_id, thresh_iou)
+                        cum_TP_row += TP
+                        cum_FP_row += FP
+                        cum_FN_row += FN
+
+                output += f'For Thresh IOU = {thresh_iou}\n'
+
+                if check_table(real_path, pred_path, filename):
+                    avg_table_score = sum(table_score_ls) / len(table_score_ls)
+                    output += f'Average Table Score = {avg_table_score}\n'
+                    result[col][bucket_type][thresh_iou]['Average Table Score'] = avg_table_score
+
+                if check_column(real_path, pred_path, filename):
+                    precision_col, recall_col = precision_recall(cum_TP_col, cum_FP_col, cum_FN_col)
+                    output += f'For Column Seprators\n'
+                    result[col][bucket_type][thresh_iou]['Column Seprators'] = dict()
+                    output += f'TP = {cum_TP_col}\n'
+                    output += f'FP = {cum_FP_col}\n'
+                    output += f'FN = {cum_FN_col}\n'
+                    output += f'Precision = {precision_col}\n'
+                    output += f'Recall = {recall_col}\n'
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['TP'] = cum_TP_col
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['FP'] = cum_FP_col
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['FN'] = cum_FN_col
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['Precision'] = precision_col
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['Recall'] = recall_col
+
+                if check_row(real_path, pred_path, filename):
+                    precision_row, recall_row = precision_recall(cum_TP_row, cum_FP_row, cum_FN_row)
+                    output += f'For Row Seprators\n'
+                    result[col][bucket_type][thresh_iou]['Row Seprators'] = dict()
+                    output += f'TP = {cum_TP_row}\n'
+                    output += f'FP = {cum_FP_row}\n'
+                    output += f'FN = {cum_FN_row}\n'
+                    output += f'Precision = {precision_row}\n'
+                    output += f'Recall = {recall_row}\n'
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['TP'] = cum_TP_row
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['FP'] = cum_FP_row
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['FN'] = cum_FN_row
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['Precision'] = precision_row
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['Recall'] = recall_row
+                output += '\n'
+
+    return result, output
 
 
 def invoke_localisation_lambda(input_data):
@@ -90,12 +175,7 @@ def get_yolov5_pred(s3_path, s3_bucket):
 
     return invoke_localisation_lambda(event)
 
-
-def get_score():
-    df = pd.read_csv(f'{LOCAL_DATA_DIR}/test_set_v1.csv')
-    os.makedirs(f'{LOCAL_DATA_DIR}/labels/', exist_ok=True)
-    os.makedirs(f'{LOCAL_DATA_DIR}/model_outputs/', exist_ok=True)
-
+def get_model_output(df):
     for file_name in df['file_name']:
         s3_bucket = TEST_S3_BUCKET
         s3_path = f'{TEST_S3_PATH}/images/{file_name}'
@@ -106,7 +186,41 @@ def get_score():
 
         s3_cp(f'{LABELS_S3_PATH}/{file_name[:-4]}.json', f'{LOCAL_DATA_DIR}/labels/{file_name[:-4]}.json')
 
+
+def get_best_result():
+    s3_cp(BEST_RESULT_S3_PATH, f'{LOCAL_DATA_DIR}/best_result.json')
+    with open(f'{LOCAL_DATA_DIR}/best_result.json', 'r') as f:
+        best_result = json.loads(f.read())
+    return best_result
+
+
+def get_comparision(best_result, model_result):
+    output = ''
+    for thresh_iou in best_result.keys():
+        output += f'For Thresh IOU = {thresh_iou}\n'
+        for score in best_result[thresh_iou].keys():
+            output += f'{score} for best_result={best_result[thresh_iou][score]} \t current_model={model_result[thresh_iou][score]}\n'
+        output += '\n'
+    return output
+
+
+def inference():
+    print(os.environ['EMAIL_RECIPIENT'])
+    df = pd.read_csv(f'{LOCAL_DATA_DIR}/test_set_v1.csv')
+    os.makedirs(f'{LOCAL_DATA_DIR}/labels/', exist_ok=True)
+    os.makedirs(f'{LOCAL_DATA_DIR}/model_outputs/', exist_ok=True)
+
+    # get_model_output(df)
+
     real_path = f'{LOCAL_DATA_DIR}/labels/'
     pred_path = f'{LOCAL_DATA_DIR}/model_outputs/'
     thresh_iou = [0.5, 0.9]
-    return score(df, real_path, pred_path, thresh_iou)
+    model_result = get_score(df, real_path, pred_path, thresh_iou)
+    best_result = get_best_result()
+    compare_result = get_comparision(best_result, model_result)
+
+    bucket_result, bucket_output = get_bucket_analysis(df, real_path, pred_path, thresh_iou)
+    final_output = compare_result + '\n' + bucket_result
+    call_email_lambda(final_output)
+
+    return None
