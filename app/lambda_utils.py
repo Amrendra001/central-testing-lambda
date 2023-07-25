@@ -5,14 +5,14 @@ import botocore.config
 
 
 # Email utils
-def call_email_lambda(status_string):
+def call_email_lambda(status_string, task):
     lambda_input = {
         "toEmail": os.environ['EMAIL_RECIPIENT'],
         "ccEmail": "",
         "bccEmail": "",
         "fileName": [],
         "fromEmail": "noreply@javis.co",
-        "subject": "Test Data Score",
+        "subject": f"Central Testing Lambda - {task}",
         "messageBody": status_string
     }
     print('Sending project creation Email :', lambda_input)
