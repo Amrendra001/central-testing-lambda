@@ -197,17 +197,27 @@ def get_comparision(best_result, model_result):
     for thresh_iou in model_result.keys():
         output += f'For Thresh IOU = {thresh_iou} <br>'
         for score in model_result[thresh_iou].keys():
-            output += f'{score} for best_result={best_result[thresh_iou][score]:.4f} \t current_model={model_result[thresh_iou][score]:.4f} <br>'
+            output += f'{score} for best_model={best_result[thresh_iou][score]:.4f} \t current_model={model_result[thresh_iou][score]:.4f} <br>'
         output += '<br>'
     return output
 
+
+def is_new_model_better(best_result, model_result):
+    cnt = 0
+    score = 0
+    for thresh_iou in model_result.keys():
+        cnt += 1
+        if model_result[thresh_iou]['Column Seprators F1 Score'] > best_result[thresh_iou]['Column Seprators F1 Score']:
+            score += 1
+    if cnt>score//2: return True
+    return False
 
 def inference():
     df = pd.read_csv(f'{LOCAL_DATA_DIR}/test_set_v1.csv')
     os.makedirs(f'{LOCAL_DATA_DIR}/labels/', exist_ok=True)
     os.makedirs(f'{LOCAL_DATA_DIR}/model_outputs/', exist_ok=True)
 
-    get_model_output(df)
+    # get_model_output(df)
 
     real_path = f'{LOCAL_DATA_DIR}/labels/'
     pred_path = f'{LOCAL_DATA_DIR}/model_outputs/'
@@ -217,6 +227,9 @@ def inference():
         json.dump(model_result, f)
     best_result = get_best_result()
     compare_result = get_comparision(best_result, model_result)
+    if is_new_model_better(best_result, model_result):
+        compare_result += "<br><b> Since new model's F1 score is better. Updated best_model metrics with new_model metrics.</b><br>"
+        s3_cp(f'{LOCAL_DATA_DIR}/model_result.json', BEST_RESULT_S3_PATH)
 
     bucket_result, bucket_output = get_bucket_analysis(df, real_path, pred_path, thresh_iou)
     final_output = compare_result + '<br>' + bucket_output
