@@ -21,6 +21,10 @@ def add(cum_TP, cum_FP, cum_FN, TP, FP, FN):
     return cum_TP + TP, cum_FP + FP, cum_FN + FN
 
 
+def f1_score(precision, recall):
+    return (2*precision*recall)/(precision+recall)
+
+
 def get_score(df, real_path, pred_path, thresholds):
     result = dict()
     for thresh_iou in thresholds:
@@ -56,11 +60,13 @@ def get_score(df, real_path, pred_path, thresholds):
             precision_col, recall_col = precision_recall(cum_TP_col, cum_FP_col, cum_FN_col)
             result[thresh_key]['Column Seprators Precision'] = precision_col
             result[thresh_key]['Column Seprators Recall'] = recall_col
+            result[thresh_key]['Column Seprators F1 Score'] = f1_score(precision_col, recall_col)
 
         if check_row(real_path, pred_path, filename):
             precision_row, recall_row = precision_recall(cum_TP_row, cum_FP_row, cum_FN_row)
             result[thresh_key]['Row Seprators Precision'] = precision_row
             result[thresh_key]['Row Seprators Recall'] = recall_row
+            result[thresh_key]['Row Seprators F1 Score'] = f1_score(precision_row, recall_row)
 
     return result
 
@@ -68,7 +74,7 @@ def get_score(df, real_path, pred_path, thresholds):
 def get_bucket_analysis(df_org, real_path, pred_path, thresholds):
     result = dict()
     output = 'Bucket Analysis: <br>'
-    col_ls = ['format', 'structuring', 'row_levels', 'table_size', 'divisions_presence', 'partial_structure']
+    col_ls = ['format']
     for col in col_ls:
         result[col] = dict()
         for bucket_type in df_org[col].unique():
@@ -106,38 +112,36 @@ def get_bucket_analysis(df_org, real_path, pred_path, thresholds):
 
                 if check_table(real_path, pred_path, filename):
                     avg_table_score = sum(table_score_ls) / len(table_score_ls)
-                    output += f'Average Table Score = {avg_table_score} <br>'
+                    output += f'Average Table Score = {avg_table_score:.4f} <br>'
                     result[col][bucket_type][thresh_iou]['Average Table Score'] = avg_table_score
 
                 if check_column(real_path, pred_path, filename):
                     precision_col, recall_col = precision_recall(cum_TP_col, cum_FP_col, cum_FN_col)
                     output += f'For Column Seprators <br>'
                     result[col][bucket_type][thresh_iou]['Column Seprators'] = dict()
-                    output += f'TP = {cum_TP_col} <br>'
-                    output += f'FP = {cum_FP_col} <br>'
-                    output += f'FN = {cum_FN_col} <br>'
-                    output += f'Precision = {precision_col} <br>'
-                    output += f'Recall = {recall_col} <br>'
+                    output += f'Precision = {precision_col:.4f} <br>'
+                    output += f'Recall = {recall_col:.4f} <br>'
+                    output += f'F1 Score = {f1_score(precision_col, recall_col):.4f} <br>'
                     result[col][bucket_type][thresh_iou]['Column Seprators']['TP'] = cum_TP_col
                     result[col][bucket_type][thresh_iou]['Column Seprators']['FP'] = cum_FP_col
                     result[col][bucket_type][thresh_iou]['Column Seprators']['FN'] = cum_FN_col
                     result[col][bucket_type][thresh_iou]['Column Seprators']['Precision'] = precision_col
                     result[col][bucket_type][thresh_iou]['Column Seprators']['Recall'] = recall_col
+                    result[col][bucket_type][thresh_iou]['Column Seprators']['F1 Score'] = f1_score(precision_col, recall_col)
 
                 if check_row(real_path, pred_path, filename):
                     precision_row, recall_row = precision_recall(cum_TP_row, cum_FP_row, cum_FN_row)
                     output += f'For Row Seprators <br>'
                     result[col][bucket_type][thresh_iou]['Row Seprators'] = dict()
-                    output += f'TP = {cum_TP_row} <br>'
-                    output += f'FP = {cum_FP_row} <br>'
-                    output += f'FN = {cum_FN_row} <br>'
-                    output += f'Precision = {precision_row} <br>'
-                    output += f'Recall = {recall_row} <br>'
+                    output += f'Precision = {precision_row:.4f} <br>'
+                    output += f'Recall = {recall_row:.4f} <br>'
+                    output += f'F1 Score = {f1_score(precision_row, recall_row):.4f} <br>'
                     result[col][bucket_type][thresh_iou]['Row Seprators']['TP'] = cum_TP_row
                     result[col][bucket_type][thresh_iou]['Row Seprators']['FP'] = cum_FP_row
                     result[col][bucket_type][thresh_iou]['Row Seprators']['FN'] = cum_FN_row
                     result[col][bucket_type][thresh_iou]['Row Seprators']['Precision'] = precision_row
                     result[col][bucket_type][thresh_iou]['Row Seprators']['Recall'] = recall_row
+                    result[col][bucket_type][thresh_iou]['Row Seprators']['F1 Score'] = f1_score(precision_row, recall_row)
                 output += '<br>'
 
     return result, output
@@ -190,10 +194,10 @@ def get_best_result():
 
 def get_comparision(best_result, model_result):
     output = ''
-    for thresh_iou in best_result.keys():
+    for thresh_iou in model_result.keys():
         output += f'For Thresh IOU = {thresh_iou} <br>'
-        for score in best_result[thresh_iou].keys():
-            output += f'{score} for best_result={best_result[thresh_iou][score]} \t current_model={model_result[thresh_iou][score]} <br>'
+        for score in model_result[thresh_iou].keys():
+            output += f'{score} for best_result={best_result[thresh_iou][score]:.4f} \t current_model={model_result[thresh_iou][score]:.4f} <br>'
         output += '<br>'
     return output
 
@@ -203,12 +207,14 @@ def inference():
     os.makedirs(f'{LOCAL_DATA_DIR}/labels/', exist_ok=True)
     os.makedirs(f'{LOCAL_DATA_DIR}/model_outputs/', exist_ok=True)
 
-    # get_model_output(df)
+    get_model_output(df)
 
     real_path = f'{LOCAL_DATA_DIR}/labels/'
     pred_path = f'{LOCAL_DATA_DIR}/model_outputs/'
-    thresh_iou = [0.5, 0.9]
+    thresh_iou = [0.5]
     model_result = get_score(df, real_path, pred_path, thresh_iou)
+    with open(f'{LOCAL_DATA_DIR}/model_result.json', 'w') as f:
+        json.dump(model_result, f)
     best_result = get_best_result()
     compare_result = get_comparision(best_result, model_result)
 
