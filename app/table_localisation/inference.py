@@ -6,12 +6,7 @@ from table_localisation.metrics_util import precision_recall, metrics_table, met
 from global_variables import LOCAL_DATA_DIR, OCR_S3_PATH, TEST_S3_BUCKET, TEST_S3_PATH, LABELS_S3_PATH, \
     BEST_RESULT_S3_PATH
 from lambda_utils import call_email_lambda
-from utils import invoke_localisation_lambda
-
-
-def s3_cp(source, destination):
-    sync_command = f'aws s3 cp "{source}" "{destination}"'
-    os.system(sync_command)
+from utils import invoke_localisation_lambda, s3_cp, get_best_result
 
 
 def download_ocr(doc_id):
@@ -174,7 +169,7 @@ def get_bucket_analysis(df_org, real_path, pred_path, thresholds):
     return result, output
 
 
-def get_yolov5_pred(s3_path, s3_bucket):
+def get_lambda_pred(s3_path, s3_bucket):
     """
         Function to get prediction from table-localisation-ml lambda.
     :param s3_path: S3 path for image on which the prediction to get.
@@ -197,23 +192,12 @@ def get_model_output(df):
     for file_name in df['file_name']:
         s3_bucket = TEST_S3_BUCKET
         s3_path = f'{TEST_S3_PATH}/images/{file_name}'
-        data = get_yolov5_pred(s3_path, s3_bucket)
+        data = get_lambda_pred(s3_path, s3_bucket)
         json_file_name = file_name[:file_name.rfind('.')] + '.json'
         with open(f'{LOCAL_DATA_DIR}/model_outputs/' + json_file_name, 'w') as f:
             json.dump(data, f)
 
         s3_cp(f'{LABELS_S3_PATH}/{file_name[:-4]}.json', f'{LOCAL_DATA_DIR}/labels/{file_name[:-4]}.json')
-
-
-def get_best_result():
-    """
-        Download best result from s3.
-    :return: best run result.
-    """
-    s3_cp(BEST_RESULT_S3_PATH, f'{LOCAL_DATA_DIR}/best_result.json')
-    with open(f'{LOCAL_DATA_DIR}/best_result.json', 'r') as f:
-        best_result = json.loads(f.read())
-    return best_result
 
 
 def get_comparison(best_result, model_result):
@@ -245,7 +229,8 @@ def is_new_model_better(best_result, model_result):
         cnt += 1
         if model_result[thresh_iou]['Column Seprators F1 Score'] > best_result[thresh_iou]['Column Seprators F1 Score']:
             score += 1
-    if cnt > score // 2: return True
+    if cnt > score // 2:
+        return True
     return False
 
 
@@ -262,7 +247,7 @@ def inference():
     model_result = get_score(df, real_path, pred_path, thresh_iou)  # Get score for current model's prediction
     with open(f'{LOCAL_DATA_DIR}/model_result.json', 'w') as f:  # Save current model's score
         json.dump(model_result, f)
-    best_result = get_best_result()  # Get best model score
+    best_result = get_best_result(BEST_RESULT_S3_PATH, LOCAL_DATA_DIR)  # Get best model score
     compare_result = get_comparison(best_result,
                                      model_result)  # Check if current model score is better than best model score
     if is_new_model_better(best_result,
