@@ -6,6 +6,7 @@ from app import handler
 
 if __name__ == '__main__':
     event = {
-        'task': 'table_localisation',
+        # 'task': 'table_localisation',
+        'task': 'info_extraction'
     }
     print(handler(event, 'context'))
